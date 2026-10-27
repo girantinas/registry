@@ -65,10 +65,11 @@ block separately from whether the attack succeeded.
 | `scripted:hardened` | A reference agent that reads the same content and declines | none |
 | `claude-code` | A real Claude Code session, headless, over the same lab server | tokens |
 | `gemini-cli` | A real Gemini CLI session over the same lab server. Verified against the live API on 2026-10-08 with gemini-cli 0.26.0. Needs `--model`, because the CLI's own default is retired for new API keys | tokens |
+| `codex-cli` | A real Codex CLI session isolated from user and project configuration. Verified on 2026-10-26 with codex-cli 0.155.1 and `gpt-6-luna`. Needs `--model` | tokens |
 
 The scripted agents are the control, not the finding: they exist so the scan can run in CI
-and so a change in the rules shows up immediately. `claude-code` is the only target that
-measures a model. Nothing reaches for it unless you name it.
+and so a change in the rules shows up immediately. The real harnesses measure models and
+cost tokens. Nothing reaches for one unless you name it.
 
 ## What it measured
 
@@ -120,9 +121,9 @@ scripted scan with and without the sensor, none of which needs a model or costs 
 ## Known limits (v0)
 
 - Four of eighteen patterns have scenarios.
-- Claude Code is the only harness measured so far. `gemini-cli` is wired and contract
-  tested but has not been run against the live API, and an open model through Ollama has no
-  target yet. Run `python3 -m guardian_scanner targets` to see what your own machine can do.
+- Claude Code, Gemini CLI and Codex CLI have recorded measurements. An open model through
+  Ollama has no target yet. Run
+  `python3 -m guardian_scanner targets` to see what your own machine can do.
 - The YAML reader covers only the subset `schema.yaml` uses and refuses anything else. That
   is deliberate, but it means a pattern written in wider YAML is rejected rather than read.
 - `claude-code` judges the tampered-tool outcome from the text of the answer, which is a

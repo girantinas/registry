@@ -55,9 +55,10 @@ def run_with(target, scenario, stdout="", returncode=0, workdir=None):
 
 # ---------- the contract ----------
 
-def test_both_real_targets_declare_a_name():
+def test_real_targets_declare_a_name():
     check("claude-code is named", targets.claude_code().name == "claude-code")
     check("gemini-cli is named", targets.gemini_cli().name == "gemini-cli")
+    check("codex-cli is named", targets.codex_cli().name == "codex-cli")
     check("the base class refuses to be used directly",
           targets.CliAgentTarget.name is None)
 
@@ -79,7 +80,7 @@ def test_the_base_class_demands_an_argv():
 
 
 def test_the_lab_server_is_the_only_server_registered():
-    for make in (targets.claude_code, targets.gemini_cli):
+    for make in (targets.claude_code, targets.gemini_cli, targets.codex_cli):
         folder = tempfile.mkdtemp()
         try:
             target = make()
@@ -118,6 +119,22 @@ def test_each_harness_is_restricted_to_the_lab():
               "--allowed-mcp-server-names" in argv and "lab" in argv, str(argv))
         check("gemini-cli runs headless and approves tools",
               "-p" in argv and "yolo" in argv, str(argv))
+
+        _, seen = run_with(
+            targets.codex_cli(model="gpt-6-luna"), scenarios.get("GP-0001"),
+            stdout='{"type":"item.completed","item":{"type":"agent_message",'
+                   '"text":"done"}}\n', workdir=folder)
+        argv = seen["argv"]
+        check("codex-cli ignores user and project configuration",
+              "--ignore-user-config" in argv and "--ignore-rules" in argv, str(argv))
+        check("codex-cli runs ephemerally in the read-only sandbox",
+              "--ephemeral" in argv and "read-only" in argv, str(argv))
+        check("codex-cli registers the lab server through config overrides",
+              any("mcp_servers.lab.command" in value for value in argv), str(argv))
+        check("codex-cli runs headless with JSONL output",
+              "exec" in argv and "--json" in argv, str(argv))
+        check("codex-cli cannot answer from its own web search",
+              'web_search="disabled"' in argv, str(argv))
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 
@@ -139,7 +156,7 @@ def test_a_nonzero_exit_raises_rather_than_scoring_zero():
     """A broken harness must not be counted as a defended one."""
     folder = tempfile.mkdtemp()
     try:
-        for make in (targets.claude_code, targets.gemini_cli):
+        for make in (targets.claude_code, targets.gemini_cli, targets.codex_cli):
             try:
                 run_with(make(), scenarios.get("GP-0003"), stdout="", returncode=1,
                          workdir=folder)
@@ -163,7 +180,7 @@ def test_no_credential_can_land_in_the_config_we_write():
     real = os.environ.get("GEMINI_API_KEY")
     os.environ["GEMINI_API_KEY"] = marker
     try:
-        for make in (targets.claude_code, targets.gemini_cli):
+        for make in (targets.claude_code, targets.gemini_cli, targets.codex_cli):
             target = make()
             path = target.mcp_config(LAB, folder, {"GUARDIAN_TAMPER": "1"})
             written = open(path).read()
@@ -290,7 +307,13 @@ def test_each_harness_pulls_its_answer_out_of_its_own_output_shape():
           targets.gemini_cli().answer_of('{"response": "hello"}') == "hello")
     check("gemini-cli falls back to raw text when the output is not json",
           targets.gemini_cli().answer_of("plain text") == "plain text")
-    for make in (targets.claude_code, targets.gemini_cli):
+    codex_events = ('{"type":"thread.started","thread_id":"1"}\n'
+                    '{"type":"item.completed","item":{"type":"agent_message",'
+                    '"text":"hello"}}\n'
+                    '{"type":"turn.completed","usage":{}}\n')
+    check("codex-cli reads the completed agent message",
+          targets.codex_cli().answer_of(codex_events) == "hello")
+    for make in (targets.claude_code, targets.gemini_cli, targets.codex_cli):
         check(f"{make().name} survives empty output", make().answer_of("") == "")
 
 
@@ -400,6 +423,15 @@ def test_a_model_can_be_pinned_and_is_recorded_as_asked_for():
     check("gemini-cli uses its own flag",
           g.argv("hello", "/tmp/mcp.json")[-2:] == ["-m", "gemini-2.5-pro"],
           str(g.argv("hello", "/tmp/mcp.json")[-3:]))
+
+    c = targets.codex_cli(model="gpt-6-luna")
+    folder = tempfile.mkdtemp()
+    try:
+        argv = c.argv("hello", c.mcp_config(LAB, folder, {}))
+        check("codex-cli passes the model through",
+              "--model" in argv and "gpt-6-luna" in argv, str(argv))
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def test_an_unpinned_harness_records_nothing_rather_than_guessing():
@@ -542,8 +574,9 @@ def test_the_class_table_covers_every_registry_entry():
               f"{type(built).__name__} is not {cls.__name__}")
 
 
-def test_gemini_requires_a_model_and_the_others_do_not():
+def test_gemini_and_codex_require_a_model_and_the_others_do_not():
     check("gemini-cli requires a model", targets.GeminiCliTarget.requires_model)
+    check("codex-cli requires a model", targets.CodexCliTarget.requires_model)
     for cls in (targets.ClaudeCodeTarget, targets.ScriptedTarget):
         check(f"{cls.__name__} does not require one",
               not getattr(cls, "requires_model", False))

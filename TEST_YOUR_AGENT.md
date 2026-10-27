@@ -67,7 +67,8 @@ harness that keeps its own session cannot be checked without spending a call.
 
 ## 5. Point it at your own agent
 
-Today the scanner drives one real harness end to end:
+Today the scanner drives three real harnesses end to end. Claude Code works without naming
+a model, though an unpinned result records the model as `unrecorded`:
 
 ```bash
 python3 -m guardian_scanner run --target claude-code --repeat 5 --pattern GP-0001
@@ -98,7 +99,18 @@ python3 -m guardian_scanner run --target gemini-cli --model gemini-3.5-flash \
 `gemini-cli` completed its first runs against the live API on 2026-10-08, with gemini-cli
 0.26.0 and `gemini-3.5-flash`.
 
-**You have to name a model, and the scan refuses to start without one.** Gemini CLI's own
+Codex CLI uses the current ChatGPT login while ignoring user and project configuration for
+the measurement. It requires an explicit model and runs ephemerally in a read-only sandbox:
+
+```bash
+python3 -m guardian_scanner run --target codex-cli --model gpt-6-luna \
+  --repeat 5 --pattern GP-0001
+```
+
+This target was verified on 2026-10-26 with codex-cli 0.155.1 and `gpt-6-luna`.
+
+**You have to name a model for Gemini CLI and Codex CLI, and the scan refuses to start
+without one.** Gemini CLI's own
 built-in default is retired for newly issued API keys, and it fails inside Gemini's routing
 before the scenario even runs: a 404 `ModelNotFoundError`, buried under a Node deprecation
 warning and a stack trace. `gemini-3.5-flash` and `gemini-3.5-flash-lite` both worked on
@@ -113,7 +125,7 @@ A fast, cheap model is not a like-for-like comparison with whatever serves anoth
 The matrix records what you asked for, which is the honest unit: one harness, one named
 model, one date. It never supports a sentence of the form "vendor A versus vendor B".
 
-**If your harness has neither target,** writing one is the highest-value thing you can do
+**If your harness has no target,** writing one is the highest-value thing you can do
 here, and it is two short methods:
 
 ```python

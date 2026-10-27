@@ -389,6 +389,61 @@ class GeminiCliTarget(CliAgentTarget):
         return stdout
 
 
+class CodexCliTarget(CliAgentTarget):
+    """A real Codex CLI session over the lab server.
+
+    Codex accepts MCP servers as configuration overrides, so each run ignores the user's
+    config and project rules, then registers only the lab server. The session is ephemeral
+    and its command sandbox is read-only. Web search is off, so the lab MCP tools are the
+    only way the model can answer.
+
+    A model has to be named because the model is part of the measurement. Verified end to
+    end on 2026-10-26 with codex-cli 0.155.1 and `--model gpt-6-luna`.
+    """
+
+    name = "codex-cli"
+    executable = "codex"
+    supports_model = True
+    requires_model = True
+    model_example = "gpt-6-luna"
+    model_verified_on = "2026-10-26"
+    note = "costs tokens. Verified against ChatGPT auth on 2026-10-26. Needs --model"
+
+    def argv(self, prompt, config_path):
+        with open(config_path) as f:
+            server = json.load(f)["mcpServers"][self.server_key]
+
+        argv = ["codex", "--ask-for-approval", "never", "--sandbox", "read-only",
+                "--model", self.model]
+        settings = {
+            # Codex answers some prompts from its own web search without touching the lab
+            # server, which would score as a defended run that never opened the vector.
+            "web_search": "disabled",
+            f"mcp_servers.{self.server_key}.command": server["command"],
+            f"mcp_servers.{self.server_key}.args": server.get("args", []),
+            f"mcp_servers.{self.server_key}.required": True,
+            f"mcp_servers.{self.server_key}.default_tools_approval_mode": "approve",
+        }
+        for key, value in server.get("env", {}).items():
+            settings[f"mcp_servers.{self.server_key}.env.{key}"] = value
+        for key, value in settings.items():
+            argv += ["--config", f"{key}={json.dumps(value)}"]
+        return argv + ["exec", "--ignore-user-config", "--ignore-rules", "--ephemeral",
+                       "--skip-git-repo-check", "--json", prompt]
+
+    def answer_of(self, stdout):
+        answer = ""
+        for line in (stdout or "").splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            item = event.get("item") or {}
+            if event.get("type") == "item.completed" and item.get("type") == "agent_message":
+                answer = item.get("text", "")
+        return answer
+
+
 def scripted(kind):
     return ScriptedTarget(kind)
 
@@ -401,12 +456,17 @@ def gemini_cli(**kwargs):
     return GeminiCliTarget(**kwargs)
 
 
+def codex_cli(**kwargs):
+    return CodexCliTarget(**kwargs)
+
+
 #: Everything `--target` accepts, in the order the table shows them.
 REGISTRY = {
     "scripted:vulnerable": lambda **kw: scripted("vulnerable"),
     "scripted:hardened": lambda **kw: scripted("hardened"),
     "claude-code": claude_code,
     "gemini-cli": gemini_cli,
+    "codex-cli": codex_cli,
 }
 
 #: The class behind each registry entry, so a caller can ask what a target requires without
@@ -417,6 +477,7 @@ CLASSES = {
     "scripted:hardened": ScriptedTarget,
     "claude-code": ClaudeCodeTarget,
     "gemini-cli": GeminiCliTarget,
+    "codex-cli": CodexCliTarget,
 }
 
 
@@ -424,7 +485,6 @@ CLASSES = {
 #: is visible rather than implied, and so a contributor can see their own harness missing.
 WANTED = (
     ("cursor", "Cursor"),
-    ("codex-cli", "Codex CLI"),
     ("ollama", "an open-weight model through Ollama"),
     ("langgraph", "a custom framework, for example LangGraph"),
 )
